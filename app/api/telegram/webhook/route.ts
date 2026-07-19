@@ -11,7 +11,7 @@ type TelegramUpdate = {
 async function sendMessage(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://lets-go-theta.vercel.app";
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
