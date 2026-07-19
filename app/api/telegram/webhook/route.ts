@@ -11,10 +11,11 @@ type TelegramUpdate = {
 async function sendMessage(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify({ chat_id: chatId, text, reply_markup: appUrl ? { inline_keyboard: [[{ text: "Открыть LetsGo", web_app: { url: appUrl } }]] } : undefined }),
   });
 }
 

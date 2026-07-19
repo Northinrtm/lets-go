@@ -18,20 +18,33 @@ export default function Home() {
   const [searchResult, setSearchResult] = useState("");
   const [activeTab, setActiveTab] = useState<"today" | "favorites">("today");
   const [manualQuery, setManualQuery] = useState("");
+  const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const container = document.getElementById("telegram-login");
-    if (!container) return;
-    container.innerHTML = "";
     const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.src = "https://telegram.org/js/telegram-web-app.js";
     script.async = true;
-    script.setAttribute("data-telegram-login", process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "LetsGoMoscowBot");
-    script.setAttribute("data-size", "medium");
-    script.setAttribute("data-auth-url", `${window.location.origin}/api/auth/telegram/callback`);
-    script.setAttribute("data-request-access", "write");
-    container.appendChild(script);
+    script.onload = () => {
+      const telegram = (window as Window & { Telegram?: { WebApp?: { ready: () => void; expand: () => void; initDataUnsafe?: { user?: { id: number } } } } }).Telegram?.WebApp;
+      telegram?.ready();
+      telegram?.expand();
+      const userId = telegram?.initDataUnsafe?.user?.id;
+      if (userId) setTelegramUserId(String(userId));
+    };
+    document.head.appendChild(script);
+    return () => script.remove();
   }, []);
+
+  useEffect(() => {
+    if (!telegramUserId) return;
+    fetch("/api/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ telegramUserId, interestText }) }).catch(() => undefined);
+  }, [telegramUserId, interestText]);
+
+  function connectTelegram() {
+    const username = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "LetsGoMoscowBot";
+    window.open(`https://t.me/${username}?start=connect`, "_blank", "noopener,noreferrer");
+    setNotice("В боте нажмите Start, затем «Открыть LetsGo»");
+  }
 
   function toggleInterest(interest: string) {
     setSelected((current) => current.includes(interest) ? current.filter((item) => item !== interest) : [...current, interest]);
@@ -88,7 +101,7 @@ export default function Home() {
   return (
     <main className="page">
       <div className="container">
-        <nav className="nav"><div className="logo">LetsGo</div><div id="telegram-login" className="telegram-login" /></nav>
+        <nav className="nav"><div className="logo">LetsGo</div><button className="login" onClick={connectTelegram}>Войти через Telegram</button></nav>
         <section className="hero"><div className="eyebrow">Персональная афиша Москвы</div><h1>Пойдём?</h1><p className="lead">Выбери интересы — LetsGo найдёт события, которые действительно захочется посетить.</p></section>
         <section><div className="section-title"><h2>Что тебе интересно?</h2><span className="hint">Это поле можно редактировать</span></div><textarea className="interest-editor" value={interestText} onChange={(event) => setInterestText(event.target.value)} placeholder="Например: люблю джаз, необычные выставки и фестивали еды" /><p className="editor-hint">ИИ сам выделит темы, уточнит смысл и найдёт подходящие события.</p><div className="interest-list">{interests.map((interest) => <button key={interest} className={`interest ${selected.includes(interest) ? "active" : ""}`} onClick={() => toggleInterest(interest)}>{interest}</button>)}{selected.filter((interest) => !interests.includes(interest)).map((interest) => <button key={interest} className="interest active custom" onClick={() => toggleInterest(interest)}>{interest} ×</button>)}<button className="interest add-interest" onClick={() => setAddingInterest(true)}>＋</button></div>{addingInterest && <div className="custom-interest"><input autoFocus value={customInterest} onChange={(event) => setCustomInterest(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCustomInterest()} placeholder="Например, средневековый фестиваль" /><button className="primary" onClick={addCustomInterest}>Добавить</button><button className="secondary" onClick={() => setAddingInterest(false)}>Отмена</button></div>}<button className="find-button" onClick={() => searchEvents()} disabled={searching}>{searching ? "ИИ ищет события…" : "Найти подходящие события"}</button></section>
         <section className="manual-search"><div className="section-title"><h2>Найти отдельно</h2><span className="hint">Разовый поиск по запросу</span></div><div className="manual-row"><input value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && runManualSearch()} placeholder="Например: средневековый фестиваль в Москве" /><button className="primary" onClick={runManualSearch} disabled={searching}>Искать</button></div>{searchResult && <pre className="search-result">{searchResult}</pre>}</section>
