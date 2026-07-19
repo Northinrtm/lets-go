@@ -14,10 +14,7 @@ export default function Home() {
   const [saved, setSaved] = useState<string[]>([]);
   const [reminders, setReminders] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState("");
   const [activeTab, setActiveTab] = useState<"today" | "favorites">("today");
-  const [manualQuery, setManualQuery] = useState("");
   const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"interests" | "events" | "favorites">("interests");
   const [interestRows, setInterestRows] = useState(["Люблю музыку, небольшие выставки и средневековые фестивали"]);
@@ -70,27 +67,6 @@ export default function Home() {
     setNotice(`Добавили интерес «${value}»`);
   }
 
-  async function searchEvents(searchText = interestRows.filter(Boolean).join(". ")) {
-    setSearching(true);
-    setSearchResult("");
-    try {
-      const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interestText: searchText, interests: selected, date: "в ближайшие 7 дней" }) });
-      const data = await response.json();
-      setSearchResult(data.result || data.error || "Ничего не нашли");
-    } catch {
-      setSearchResult("Поиск временно недоступен");
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  async function runManualSearch() {
-    if (!manualQuery.trim()) return;
-    setInterestText(manualQuery.trim());
-    setNotice("ИИ ищет события по запросу…");
-    await searchEvents(manualQuery.trim());
-  }
-
   const favoriteEvents = demoEvents.filter((event) => saved.includes(event.id));
   const visibleEvents: EventItem[] = activeTab === "favorites" ? favoriteEvents : demoEvents;
 
@@ -118,8 +94,8 @@ export default function Home() {
       <div className="container">
         <nav className="nav"><div className="logo">Пойдём?</div><div className="mini-label">Москва</div></nav>
         <div className="top-tabs"><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{favoriteEvents.length}</span></button></div>
-        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} />{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div><button className="find-button" onClick={() => { setActiveSection("events"); searchEvents(); }} disabled={searching}>{searching ? "Ищем события…" : "Найти события"}</button></section>}
-        {activeSection === "events" && <section className="tab-page"><div className="manual-row"><input value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && runManualSearch()} placeholder="Искать отдельно, например: фестиваль еды" /><button className="primary" onClick={runManualSearch} disabled={searching}>Искать</button></div>{searchResult && <pre className="search-result">{searchResult}</pre>}{renderEvents(demoEvents)}</section>}
+        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} />{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        {activeSection === "events" && <section className="tab-page">{renderEvents(demoEvents)}</section>}
         {activeSection === "favorites" && <section className="tab-page">{renderEvents(favoriteEvents)}</section>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
