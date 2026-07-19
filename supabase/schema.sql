@@ -30,9 +30,24 @@ create table if not exists public.favorites (
   primary key (profile_id, event_id)
 );
 
+create table if not exists public.search_runs (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid references public.profiles(id) on delete set null,
+  status text not null,
+  interests_count integer not null default 0,
+  result_count integer not null default 0,
+  error_message text,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  result jsonb not null default '{}'::jsonb
+);
+
+create index if not exists search_runs_started_at_idx on public.search_runs(started_at desc);
+
 create index if not exists events_starts_at_idx on public.events(starts_at);
 create index if not exists events_city_idx on public.events(city);
 
 alter table public.profiles enable row level security;
 alter table public.events enable row level security;
 alter table public.favorites enable row level security;
+alter table public.search_runs enable row level security;
