@@ -17,6 +17,18 @@ button { font: inherit; cursor: pointer; }
 .mini-label { color: var(--muted); font-size: 13px; }
 .login { border: 1px solid #d9d5c9; border-radius: 999px; padding: 10px 18px; background: transparent; }
 .telegram-login { min-height: 40px; display: flex; align-items: center; }
+.top-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: 1fr 1fr 80px; gap: 4px; margin: -14px -4px 28px; padding: 5px; border: 1px solid #e6e1d5; border-radius: 15px; background: rgba(247,245,239,.94); backdrop-filter: blur(12px); }
+.top-tab { min-height: 42px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-weight: 700; }
+.active-top-tab { background: var(--foreground); color: white; }
+.tab-page { min-height: 60vh; }
+.tab-intro { margin: 12px 0 28px; }
+.interest-rows { display: grid; gap: 10px; }
+.interest-row { position: relative; }
+.interest-row input { width: 100%; min-height: 52px; border: 1px solid #d9d5c9; border-radius: 15px; background: var(--card); color: var(--foreground); padding: 0 46px 0 16px; font: inherit; font-size: 16px; outline-color: var(--accent); }
+.remove-row { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: #eee9df; color: var(--muted); font-size: 22px; }
+.add-row { min-height: 48px; border: 1px dashed #c9c2b4; border-radius: 15px; background: transparent; color: var(--foreground); font-weight: 700; }
+.page-title { margin-top: 8px; }
+.feed-label { margin: 28px 0 12px; color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
 .hero { max-width: 720px; margin-bottom: 42px; }
 .eyebrow { color: var(--accent); font-weight: 700; margin-bottom: 16px; }
 h1 { font-size: clamp(44px, 8vw, 86px); line-height: .95; letter-spacing: -.07em; margin: 0 0 24px; }

@@ -19,6 +19,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"today" | "favorites">("today");
   const [manualQuery, setManualQuery] = useState("");
   const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<"interests" | "events" | "favorites">("interests");
+  const [interestRows, setInterestRows] = useState(["Люблю музыку, небольшие выставки и средневековые фестивали"]);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -44,6 +46,21 @@ export default function Home() {
     setSelected((current) => current.includes(interest) ? current.filter((item) => item !== interest) : [...current, interest]);
   }
 
+  function updateInterestRow(index: number, value: string) {
+    setInterestRows((current) => current.map((row, rowIndex) => rowIndex === index ? value : row));
+    setInterestText(interestRows.map((row, rowIndex) => rowIndex === index ? value : row).filter(Boolean).join(". "));
+  }
+
+  function addInterestRow() {
+    setInterestRows((current) => [...current, ""]);
+  }
+
+  function removeInterestRow(index: number) {
+    const next = interestRows.filter((_, rowIndex) => rowIndex !== index);
+    setInterestRows(next.length ? next : [""]);
+    setInterestText(next.filter(Boolean).join(". "));
+  }
+
   function addCustomInterest() {
     const value = customInterest.trim();
     if (!value) return;
@@ -53,7 +70,7 @@ export default function Home() {
     setNotice(`Добавили интерес «${value}»`);
   }
 
-  async function searchEvents(searchText = interestText) {
+  async function searchEvents(searchText = interestRows.filter(Boolean).join(". ")) {
     setSearching(true);
     setSearchResult("");
     try {
@@ -92,14 +109,18 @@ export default function Home() {
     await fetch("/api/telegram/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ eventIds: [id] }) }).catch(() => undefined);
   }
 
+  function renderEvents(eventsToShow: EventItem[]) {
+    return <div className="events">{eventsToShow.length ? eventsToShow.map((event) => <article className="card" key={event.id}><div className="card-top"><div className="tag">{event.category}</div><button className="heart" onClick={() => saveEvent(event.id)} aria-label="Добавить в избранное">{saved.includes(event.id) ? "♥" : "♡"}</button></div><h3>{event.title}</h3><div className="date">{event.date}<br />{event.venue}</div><p className="reason">{event.reason}</p><div className="actions"><button className="primary" onClick={() => sendToTelegram(event.id)}>Пойдём?</button><button className="secondary" onClick={() => toggleReminder(event.id)}>{reminders.includes(event.id) ? "Напомню" : "Напомнить"}</button></div></article>) : <p className="empty">Пока здесь ничего нет.</p>}</div>;
+  }
+
   return (
     <main className="page">
       <div className="container">
         <nav className="nav"><div className="logo"><span className="logo-mark">↗</span> LetsGo</div><div className="mini-label">Москва</div></nav>
-        <section className="hero compact-hero"><div className="eyebrow">ТВОЯ АФИША</div><h1>Пойдём?</h1><p className="lead">События в Москве, которые подходят именно тебе.</p></section>
-        <section className="interest-card"><div className="section-title"><div><h2>Твои интересы</h2><span className="card-caption">ИИ ищет по этому описанию</span></div><span className="hint">изменить</span></div><textarea className="interest-editor" value={interestText} onChange={(event) => setInterestText(event.target.value)} placeholder="Например: люблю джаз, необычные выставки и фестивали еды" /><div className="interest-list">{interests.map((interest) => <button key={interest} className={`interest ${selected.includes(interest) ? "active" : ""}`} onClick={() => toggleInterest(interest)}>{interest}</button>)}{selected.filter((interest) => !interests.includes(interest)).map((interest) => <button key={interest} className="interest active custom" onClick={() => toggleInterest(interest)}>{interest} ×</button>)}<button className="interest add-interest" onClick={() => setAddingInterest(true)}>＋ свой интерес</button></div>{addingInterest && <div className="custom-interest"><input autoFocus value={customInterest} onChange={(event) => setCustomInterest(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addCustomInterest()} placeholder="Например, средневековый фестиваль" /><button className="primary" onClick={addCustomInterest}>Добавить</button><button className="secondary" onClick={() => setAddingInterest(false)}>Отмена</button></div>}<button className="find-button" onClick={() => searchEvents()} disabled={searching}>{searching ? "Ищем события…" : "Обновить подборку"}</button></section>
-        <section className="manual-search"><div className="section-title"><div><h2>Найти событие</h2><span className="card-caption">Разовый поиск по конкретному запросу</span></div></div><div className="manual-row"><input value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && runManualSearch()} placeholder="Средневековый фестиваль" /><button className="primary" onClick={runManualSearch} disabled={searching}>Искать</button></div>{searchResult && <pre className="search-result">{searchResult}</pre>}</section>
-        <section className="results-section"><div className="tabs"><button className={activeTab === "today" ? "tab active-tab" : "tab"} onClick={() => setActiveTab("today")}>Сегодня</button><button className={activeTab === "favorites" ? "tab active-tab" : "tab"} onClick={() => setActiveTab("favorites")}>Избранное <span className="tab-count">{favoriteEvents.length}</span></button></div><div className="events">{visibleEvents.length ? visibleEvents.map((event) => <article className="card" key={event.id}><div className="card-top"><div className="tag">{event.category}</div><button className="heart" onClick={() => saveEvent(event.id)} aria-label="Добавить в избранное">{saved.includes(event.id) ? "♥" : "♡"}</button></div><h3>{event.title}</h3><div className="date">{event.date}<br />{event.venue}</div><p className="reason">{event.reason}</p><div className="actions"><button className="primary" onClick={() => sendToTelegram(event.id)}>Пойдём?</button><button className="secondary" onClick={() => toggleReminder(event.id)}>{reminders.includes(event.id) ? "Напомню" : "Напомнить"}</button></div></article>) : <p className="empty">Пока нет избранных событий.</p>}</div></section>
+        <div className="top-tabs"><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{favoriteEvents.length}</span></button></div>
+        {activeSection === "interests" && <section className="tab-page"><div className="tab-intro"><div className="eyebrow">ТВОЯ АФИША</div><h1>Пойдём?</h1><p className="lead">Опиши, что тебе интересно. ИИ будет искать события по каждой строке.</p></div><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} />{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div><button className="find-button" onClick={() => { setActiveSection("events"); searchEvents(); }} disabled={searching}>{searching ? "Ищем события…" : "Найти события"}</button></section>}
+        {activeSection === "events" && <section className="tab-page"><div className="section-title page-title"><div><h2>События</h2><span className="card-caption">Новые находки по твоим интересам</span></div></div><div className="manual-row"><input value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && runManualSearch()} placeholder="Искать отдельно, например: фестиваль еды" /><button className="primary" onClick={runManualSearch} disabled={searching}>Искать</button></div>{searchResult && <pre className="search-result">{searchResult}</pre>}<div className="feed-label">Найдено сегодня</div>{renderEvents(demoEvents)}</section>}
+        {activeSection === "favorites" && <section className="tab-page"><div className="section-title page-title"><div><h2>Избранное</h2><span className="card-caption">События, которые не хочется потерять</span></div></div>{renderEvents(favoriteEvents)}</section>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
     </main>
