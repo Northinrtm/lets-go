@@ -21,13 +21,16 @@ export async function POST(request: Request) {
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini",
+      max_tokens: 1800,
+      temperature: 0,
       messages: [{ role: "user", content: prompt }],
       search_settings: { country: "russia" },
     }),
   });
 
   if (!response.ok) {
-    return Response.json({ error: "Не удалось выполнить поиск событий", details: await response.text() }, { status: 502 });
+    if (response.status === 429) return Response.json({ error: "Поиск временно перегружен. Попробуйте ещё раз через минуту." }, { status: 429 });
+    return Response.json({ error: "Не удалось выполнить поиск событий" }, { status: 502 });
   }
 
   const data = await response.json();
