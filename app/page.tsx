@@ -118,7 +118,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest], kind }) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Не удалось выполнить поиск");
+      if (!response.ok) throw new Error(`${data.error || "Не удалось выполнить поиск"}${data.retryAfterSeconds ? ` Повторить через ${data.retryAfterSeconds} сек.` : ""}`);
       const found = (data.results || []).flatMap((item: { result?: string }) => {
         try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
       });

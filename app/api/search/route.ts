@@ -1,6 +1,7 @@
 type SearchBody = { interests?: string[]; interestText?: string; date?: string; kind?: "events" | "places" };
 
 type SearchHit = { url?: string; title?: string; content?: string };
+type RateLimitError = Error & { retryAfterSeconds?: number };
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const INTEREST_DELAY_MS = 10000;
@@ -77,7 +78,11 @@ async function searchOneInterest(apiKey: string, interest: string, date: string,
     body: JSON.stringify({ model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini", max_tokens: 500, temperature: 0, messages: [{ role: "user", content: prompt }], search_settings: { country: "russia" } }),
   });
 
-  if (response.status === 429) throw new Error("RATE_LIMIT");
+  if (response.status === 429) {
+    const error = new Error("RATE_LIMIT") as RateLimitError;
+    error.retryAfterSeconds = Number(response.headers.get("retry-after")) || 60;
+    throw error;
+  }
   if (!response.ok) throw new Error("SEARCH_FAILED");
   const data = await response.json();
   const sources = data.choices?.[0]?.message?.executed_tools || [];
@@ -97,6 +102,7 @@ export async function POST(request: Request) {
 
   const results = [];
   const errors = [];
+  let retryAfterSeconds = 0;
   for (const [index, interest] of interests.entries()) {
     try {
       let result;
@@ -104,18 +110,22 @@ export async function POST(request: Request) {
         result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "RATE_LIMIT") throw error;
-        await wait(RATE_LIMIT_RETRY_DELAY_MS);
+        const retryAfter = (error as RateLimitError).retryAfterSeconds || Math.ceil(RATE_LIMIT_RETRY_DELAY_MS / 1000);
+        retryAfterSeconds = Math.max(retryAfterSeconds, retryAfter);
+        await wait(retryAfter * 1000);
         result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
       }
       results.push(result);
     } catch (error) {
-      errors.push({ interest, error: error instanceof Error && error.message === "RATE_LIMIT" ? "RATE_LIMIT" : "SEARCH_FAILED" });
+      const rateLimit = error instanceof Error && error.message === "RATE_LIMIT";
+      if (rateLimit) retryAfterSeconds = Math.max(retryAfterSeconds, (error as RateLimitError).retryAfterSeconds || 60);
+      errors.push({ interest, error: rateLimit ? "RATE_LIMIT" : "SEARCH_FAILED", ...(rateLimit ? { retryAfterSeconds: (error as RateLimitError).retryAfterSeconds || 60 } : {}) });
     }
     if (index < interests.length - 1) await wait(INTEREST_DELAY_MS);
   }
 
   if (!results.length) {
-    return Response.json({ error: errors.some((item) => item.error === "RATE_LIMIT") ? "Поиск временно перегружен. Попробуйте ещё раз через минуту." : "Не удалось выполнить поиск событий", results: [], errors }, { status: errors.some((item) => item.error === "RATE_LIMIT") ? 429 : 502 });
+    return Response.json({ error: errors.some((item) => item.error === "RATE_LIMIT") ? "Поиск временно перегружен." : "Не удалось выполнить поиск событий", retryAfterSeconds: retryAfterSeconds || undefined, results: [], errors }, { status: errors.some((item) => item.error === "RATE_LIMIT") ? 429 : 502 });
   }
-  return Response.json({ results, errors, message: "Каждый интерес обработан отдельным последовательным поисковым запросом" });
+  return Response.json({ results, errors, retryAfterSeconds: retryAfterSeconds || undefined, message: "Каждый интерес обработан отдельным последовательным поисковым запросом" });
 }
