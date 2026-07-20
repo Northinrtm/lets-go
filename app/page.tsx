@@ -10,10 +10,12 @@ export default function Home() {
   const [newEvents, setNewEvents] = useState<EventItem[]>([]);
   const [reminders, setReminders] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [searchingInterest, setSearchingInterest] = useState<number | null>(null);
   const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [activeSection, setActiveSection] = useState<"interests" | "events" | "new" | "favorites">("interests");
-  const [interestRows, setInterestRows] = useState(["Люблю музыку, небольшие выставки и средневековые фестивали"]);
+  const [interestRows, setInterestRows] = useState([""]);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -39,6 +41,7 @@ export default function Home() {
         const rows = savedText ? savedText.split(/\.\s+/).filter(Boolean) : [""];
         setInterestRows(rows);
         setInterestText(savedText);
+        setProfileId(data?.profile?.id || null);
         setProfileLoaded(true);
       })
       .catch(() => setProfileLoaded(true));
@@ -60,6 +63,17 @@ export default function Home() {
       .catch(() => { setEvents([]); setNewEvents([]); });
   }, [telegramUserId]);
 
+  useEffect(() => {
+    if (!profileId) return;
+    fetch(`/api/favorites?profileId=${encodeURIComponent(profileId)}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        const rows = data?.favorites || [];
+        setSaved(rows.map((row: { event_id: string }) => row.event_id));
+        setReminders(rows.filter((row: { reminder_enabled: boolean }) => row.reminder_enabled).map((row: { event_id: string }) => row.event_id));
+      }).catch(() => undefined);
+  }, [profileId]);
+
   function updateInterestRow(index: number, value: string) {
     setInterestRows((current) => current.map((row, rowIndex) => rowIndex === index ? value : row));
     setInterestText(interestRows.map((row, rowIndex) => rowIndex === index ? value : row).filter(Boolean).join(". "));
@@ -75,16 +89,44 @@ export default function Home() {
     setInterestText(next.filter(Boolean).join(". "));
   }
 
+  async function searchInterest(index: number) {
+    const interest = interestRows[index]?.trim();
+    if (!interest) { setNotice("Сначала напиши интерес"); return; }
+    setSearchingInterest(index);
+    setNotice("");
+    try {
+      const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest] }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Не удалось выполнить поиск");
+      const found = (data.results || []).flatMap((item: { result?: string }) => {
+        try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+      });
+      if (!found.length) { setNotice("По этому интересу ничего не найдено"); return; }
+      await fetch("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events: found }) });
+      const [allResponse, newResponse] = await Promise.all([fetch("/api/events"), fetch("/api/events?new=true")]);
+      setEvents((await allResponse.json()).events || []);
+      setNewEvents((await newResponse.json()).events || []);
+      setActiveSection("new");
+      setNotice(`Найдено событий: ${found.length}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Поиск не выполнен");
+    } finally { setSearchingInterest(null); }
+  }
+
   const favoriteEvents = events.filter((event) => saved.includes(event.id));
 
   function saveEvent(id: string) {
-    setSaved((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    const isSaved = saved.includes(id);
+    setSaved((current) => isSaved ? current.filter((item) => item !== id) : [...current, id]);
+    if (profileId) fetch("/api/favorites", { method: isSaved ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileId, eventId: id, reminderEnabled: false }) }).catch(() => undefined);
     setNotice("Список обновлён");
   }
 
   function toggleReminder(id: string) {
-    setReminders((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-    setNotice(reminders.includes(id) ? "Напоминание отключено" : "Напоминание включено: пришлём за неделю");
+    const enabled = !reminders.includes(id);
+    setReminders((current) => enabled ? [...current, id] : current.filter((item) => item !== id));
+    if (profileId) fetch("/api/favorites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileId, eventId: id, reminderEnabled: enabled }) }).catch(() => undefined);
+    setNotice(enabled ? "Напоминание включено: бот напишет за неделю" : "Напоминание отключено");
   }
 
   function renderEvents(eventsToShow: EventItem[]) {
@@ -96,10 +138,10 @@ export default function Home() {
       <div className="container">
         <nav className="nav"><div className="logo">Пойдём?</div><div className="mini-label">Москва</div></nav>
         <div className="top-tabs"><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button><button className={activeSection === "new" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("new")}>Новые <span>{newEvents.length}</span></button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{favoriteEvents.length}</span></button></div>
-        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} />{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} /><button className="search-interest" onClick={() => searchInterest(index)} disabled={searchingInterest !== null}>{searchingInterest === index ? "…" : "Искать"}</button>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
         {activeSection === "events" && <section className="tab-page">{renderEvents(events)}</section>}
         {activeSection === "new" && <section className="tab-page">{renderEvents(newEvents)}</section>}
-        {activeSection === "favorites" && <section className="tab-page">{renderEvents(favoriteEvents)}</section>}
+        {activeSection === "favorites" && <section className="tab-page"><p className="favorites-hint">Выберите событие и включите напоминание — бот напишет за неделю до начала.</p>{renderEvents(favoriteEvents)}</section>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
     </main>

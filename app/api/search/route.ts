@@ -3,6 +3,8 @@ type SearchBody = { interests?: string[]; interestText?: string; date?: string }
 type SearchHit = { url?: string; title?: string; content?: string };
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const INTEREST_DELAY_MS = 10000;
+const RATE_LIMIT_RETRY_DELAY_MS = 20000;
 
 function collectSearchHits(value: unknown, output: SearchHit[] = []): SearchHit[] {
   if (Array.isArray(value)) {
@@ -46,7 +48,7 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini", max_tokens: 700, temperature: 0, messages: [{ role: "user", content: prompt }], search_settings: { country: "russia" } }),
+    body: JSON.stringify({ model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini", max_tokens: 500, temperature: 0, messages: [{ role: "user", content: prompt }], search_settings: { country: "russia" } }),
   });
 
   if (response.status === 429) throw new Error("RATE_LIMIT");
@@ -69,11 +71,19 @@ export async function POST(request: Request) {
   const errors = [];
   for (const [index, interest] of interests.entries()) {
     try {
-      results.push(await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду"));
+      let result;
+      try {
+        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду");
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "RATE_LIMIT") throw error;
+        await wait(RATE_LIMIT_RETRY_DELAY_MS);
+        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду");
+      }
+      results.push(result);
     } catch (error) {
       errors.push({ interest, error: error instanceof Error && error.message === "RATE_LIMIT" ? "RATE_LIMIT" : "SEARCH_FAILED" });
     }
-    if (index < interests.length - 1) await wait(1500);
+    if (index < interests.length - 1) await wait(INTEREST_DELAY_MS);
   }
 
   if (!results.length) {
