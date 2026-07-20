@@ -1,6 +1,37 @@
 type SearchBody = { interests?: string[]; interestText?: string; date?: string };
 
+type SearchHit = { url?: string; title?: string; content?: string };
+
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function collectSearchHits(value: unknown, output: SearchHit[] = []): SearchHit[] {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSearchHits(item, output));
+  } else if (value && typeof value === "object") {
+    const item = value as Record<string, unknown>;
+    if (typeof item.url === "string" && typeof item.title === "string" && typeof item.content === "string") output.push({ url: item.url, title: item.title, content: item.content });
+    Object.values(item).forEach((child) => collectSearchHits(child, output));
+  }
+  return output;
+}
+
+function fallbackEvents(sources: unknown, interest: string) {
+  const seen = new Set<string>();
+  return collectSearchHits(sources).flatMap((hit) => {
+    const url = hit.url?.trim() || "";
+    if (!url || seen.has(url) || !/^https?:\/\//i.test(url)) return [];
+    const text = `${hit.title || ""} ${hit.content || ""}`;
+    const dateMatch = text.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b|\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/);
+    if (!dateMatch) return [];
+    const year = dateMatch[1] || dateMatch[6];
+    const month = dateMatch[2] || dateMatch[5];
+    const day = dateMatch[3] || dateMatch[4];
+    const startsAt = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12)).toISOString();
+    if (new Date(startsAt).getTime() < Date.now()) return [];
+    seen.add(url);
+    return [{ title: hit.title!.trim(), url, starts_at: startsAt, venue: "Москва", description: `Найдено по интересу «${interest}».` }];
+  }).slice(0, 20);
+}
 
 async function searchOneInterest(apiKey: string, interest: string, date: string) {
   const prompt = [
@@ -9,7 +40,7 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
     `Период: ${date}.`,
     "Ищи все доступные события, а не только ближайшую неделю.",
     "Используй реальные страницы с датой, местом и прямой ссылкой. Не выдумывай события.",
-    "Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент должен содержать ровно эти поля: {title, url, starts_at, venue, description}. title — название события; url — прямая рабочая ссылка на страницу события; starts_at — дата и время начала в ISO 8601, например 2026-08-15T19:00:00+03:00; venue — место проведения; description — короткое описание до 240 символов. Не добавляй события без URL или подтверждённой даты. Если событий нет, верни [].",
+    "Извлеки все подходящие события со всех найденных страниц, максимум 20, а не одно лучшее. Не возвращай [] если хотя бы на одной странице есть будущие события с датой и URL. Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент должен содержать ровно эти поля: {title, url, starts_at, venue, description}. title — название события; url — прямая рабочая ссылка на страницу события; starts_at — дата и время начала в ISO 8601, например 2026-08-15T19:00:00+03:00; venue — место проведения; description — короткое описание до 240 символов. Для диапазона дат укажи первый день. Не добавляй события без URL или подтверждённой даты. Если событий нет, верни [].",
   ].join(" ");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -21,7 +52,9 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
   if (response.status === 429) throw new Error("RATE_LIMIT");
   if (!response.ok) throw new Error("SEARCH_FAILED");
   const data = await response.json();
-  return { interest, result: data.choices?.[0]?.message?.content || "События не найдены", sources: data.choices?.[0]?.message?.executed_tools || [] };
+  const sources = data.choices?.[0]?.message?.executed_tools || [];
+  const content = data.choices?.[0]?.message?.content || "События не найдены";
+  return { interest, result: content === "[]" ? JSON.stringify(fallbackEvents(sources, interest)) : content, sources };
 }
 
 export async function POST(request: Request) {
