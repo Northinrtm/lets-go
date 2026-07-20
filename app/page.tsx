@@ -112,6 +112,7 @@ export default function Home() {
 
   async function runSearch(interest: string, kind: "events" | "places", key: string) {
     if (!interest) { setNotice("Сначала напиши интерес"); return; }
+    if (!profileId) { setNotice("Не удалось определить Telegram-профиль"); return; }
     setSearchingInterest(key);
     setNotice("");
     try {
@@ -122,7 +123,8 @@ export default function Home() {
         try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
       });
       if (!found.length) { setNotice("По этому интересу ничего не найдено"); return; }
-      await fetch("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileId, events: found.map((item: Record<string, unknown>) => ({ ...item, kind })) }) });
+      const saveResponse = await fetch("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileId, events: found.map((item: Record<string, unknown>) => ({ ...item, kind })) }) });
+      if (!saveResponse.ok) throw new Error("Не удалось сохранить найденные результаты");
       const profileQuery = `&profileId=${encodeURIComponent(profileId || "")}`;
       const [eventsResponse, placesResponse, newEventsResponse, newPlacesResponse, historyResponse] = await Promise.all([fetch(`/api/events?kind=events${profileQuery}`), fetch(`/api/events?kind=places${profileQuery}`), fetch(`/api/events?kind=events&new=true${profileQuery}`), fetch(`/api/events?kind=places&new=true${profileQuery}`), fetch(`/api/events?history=true${profileQuery}`)]);
       setEvents((await eventsResponse.json()).events || []);

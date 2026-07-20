@@ -29,7 +29,9 @@ function normalizeModelResults(content: string, kind: "events" | "places") {
       const title = typeof value.title === "string" ? value.title : typeof value.name === "string" ? value.name : "";
       const url = typeof value.url === "string" ? value.url : typeof value.website === "string" ? value.website : "";
       if (!title || !/^https?:\/\//i.test(url)) return [];
-      return [{ title, url, starts_at: kind === "places" ? null : (typeof value.starts_at === "string" ? value.starts_at : null), venue: typeof value.venue === "string" ? value.venue : typeof value.address === "string" ? value.address : "Москва", description: typeof value.description === "string" ? value.description.slice(0, 240) : "Подходит по твоему описанию." }];
+      const startsAt = kind === "places" ? null : (typeof value.starts_at === "string" ? value.starts_at : null);
+      if (kind === "events" && (!startsAt || Number.isNaN(new Date(startsAt).getTime()) || new Date(startsAt).getTime() < Date.now())) return [];
+      return [{ title, url, starts_at: startsAt, venue: typeof value.venue === "string" ? value.venue : typeof value.address === "string" ? value.address : "Москва", description: typeof value.description === "string" ? value.description.slice(0, 240) : "Подходит по твоему описанию." }];
     }).slice(0, 20);
   } catch { return []; }
 }
@@ -59,10 +61,11 @@ function fallbackEvents(sources: unknown, interest: string, kind: "events" | "pl
 
 async function searchOneInterest(apiKey: string, interest: string, date: string, kind: "events" | "places") {
   const subject = kind === "places" ? "интересные места, маршруты, экотропы, парки, музеи и необычные локации" : "актуальные будущие события";
+  const today = new Date().toISOString().slice(0, 10);
   const prompt = [
     `Найди в интернете ${subject} в Москве.`,
     `Описание того, какое место или событие хочет пользователь: «${interest}». Это не обязательно точное название — пойми смысл, выдели ключевые признаки, атмосферу, формат и используй синонимы и близкие формулировки. Не смешивай этот запрос с другими интересами.`,
-    kind === "events" ? `Период: ${date}. Ищи все доступные события, а не только ближайшую неделю.` : "Ищи реальные места в Москве, похожие по описанию пользователя: природные маршруты, экотропы, парки, музеи, необычные локации и другие подходящие места. Не ищи только страницы, где встречается точное слово из запроса, и не возвращай статьи-списки вместо конкретных мест.",
+    kind === "events" ? `Сегодня ${today}. Период: ${date}. Ищи только события, которые ещё не начались на эту дату, а не прошедшие события. Ищи все доступные события, а не только ближайшую неделю.` : "Ищи реальные места в Москве, похожие по описанию пользователя: природные маршруты, экотропы, парки, музеи, необычные локации и другие подходящие места. Не ищи только страницы, где встречается точное слово из запроса, и не возвращай статьи-списки вместо конкретных мест.",
     "Используй реальные страницы и прямые ссылки. Не выдумывай результаты.",
     kind === "events" ? "Извлеки все события со всех найденных страниц, максимум 20. Каждый элемент JSON: {title, url, starts_at, venue, description}. starts_at — будущая дата и время начала в ISO 8601. Для диапазона укажи первый день." : "Извлеки все подходящие места со всех найденных страниц, максимум 20. Каждый элемент JSON: {title, url, starts_at, venue, description}. Для места starts_at всегда null.",
     "description — короткое описание до 240 символов. Верни только корректный JSON-массив без markdown. Если ничего не найдено, верни [].",
