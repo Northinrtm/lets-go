@@ -68,6 +68,7 @@ export async function GET(request: Request) {
   const profileQueue = profiles.data || [];
   for (const [profileIndex, profile] of profileQueue.entries()) {
     console.log(JSON.stringify({ event: "daily_search_profile_queued", jobId, profileId: profile.id, queuePosition: profileIndex + 1, queueSize: profileQueue.length }));
+    await supabaseRequest(`profile_events?profile_id=eq.${encodeURIComponent(profile.id)}`, { method: "PATCH", body: JSON.stringify({ is_new: false }) });
     const interests = profile.interest_text.split(/\.\s+/).map((item) => item.trim()).filter(Boolean);
     const runStartedAt = new Date().toISOString();
     try {
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
       const foundEvents: FoundEvent[] = searchResponse.ok ? (searchResult.results || []).flatMap((item: { interest?: string; result?: string; kind?: "events" | "places" }) => parseEvents(item.result || "", item.interest || "", item.kind || "events")) : [];
       const uniqueEvents = [...new Map(foundEvents.map((event) => [event.source_url, event])).values()];
       const stored = uniqueEvents.length ? await supabaseRequest<Array<{ id: string }>>("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(uniqueEvents) }) : { data: [], error: null };
-      if (!stored.error && stored.data?.length) await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profile.id, event_id: event.id }))) });
+      if (!stored.error && stored.data?.length) await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profile.id, event_id: event.id, first_found_at: new Date().toISOString(), is_new: true }))) });
       const status = searchResponse.ok && !stored.error ? "success" : "failed";
       await supabaseRequest("search_runs", { method: "POST", body: JSON.stringify({ profile_id: profile.id, status, interests_count: interests.length, result_count: uniqueEvents.length, error_message: searchResult.error || stored.error || null, started_at: runStartedAt, finished_at: new Date().toISOString(), result: searchResult }) });
       console.log(JSON.stringify({ event: "daily_search_profile_finished", jobId, profileId: profile.id, interestsCount: interests.length, eventsFound: uniqueEvents.length, status }));

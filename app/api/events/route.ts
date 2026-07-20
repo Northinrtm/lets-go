@@ -9,9 +9,7 @@ export async function GET(request: Request) {
   const kind = url.searchParams.get("kind") as "events" | "places" | null;
   const profileId = url.searchParams.get("profileId");
   if (!profileId) return Response.json({ events: [], error: "Нужен Telegram-профиль" }, { status: 401 });
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const newFilter = isNew ? `&first_found_at=gte.${encodeURIComponent(today.toISOString())}` : "";
+  const newFilter = isNew ? "&is_new=eq.true" : "";
   const links = await supabaseRequest<Array<{ event_id: string; first_found_at: string }>>(`profile_events?select=event_id,first_found_at&profile_id=eq.${encodeURIComponent(profileId)}${newFilter}`);
   if (links.error || !links.data?.length) return Response.json({ events: [] });
   const ids = links.data.map((link) => link.event_id);
@@ -35,9 +33,12 @@ export async function POST(request: Request) {
     return [{ source_url: url, title, category: event.kind === "places" ? "Место" : (event.category?.trim() || null), description: event.description?.trim() || null, explanation: event.description?.trim() || "Подходит по твоему интересу.", venue: event.venue?.trim() || "Москва", starts_at: event.starts_at || null, city: "Москва", raw_data: event }];
   });
   if (!events.length) return Response.json({ events: [], error: "События не найдены" }, { status: 400 });
+  const clearResult = await supabaseRequest(`profile_events?profile_id=eq.${encodeURIComponent(body.profileId)}`, { method: "PATCH", body: JSON.stringify({ is_new: false }) });
+  if (clearResult.error) return Response.json({ events: [], error: clearResult.error }, { status: 503 });
   const result = await supabaseRequest<Array<{ id: string }>>("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(events) });
   if (result.error || !result.data) return Response.json({ events: [], error: result.error || "Не удалось сохранить события" }, { status: 503 });
-  const links = result.data.map((event) => ({ profile_id: body.profileId, event_id: event.id }));
+  const foundAt = new Date().toISOString();
+  const links = result.data.map((event) => ({ profile_id: body.profileId, event_id: event.id, first_found_at: foundAt, is_new: true }));
   const linkResult = await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(links) });
   if (linkResult.error) return Response.json({ events: [], error: linkResult.error }, { status: 503 });
   return Response.json({ events: events.length });

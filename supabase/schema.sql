@@ -34,8 +34,11 @@ create table if not exists public.profile_events (
   profile_id uuid not null references public.profiles(id) on delete cascade,
   event_id uuid not null references public.events(id) on delete cascade,
   first_found_at timestamptz not null default now(),
+  is_new boolean not null default true,
   primary key (profile_id, event_id)
 );
+
+alter table public.profile_events add column if not exists is_new boolean not null default true;
 
 create table if not exists public.search_runs (
   id uuid primary key default gen_random_uuid(),
