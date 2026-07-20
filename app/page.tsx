@@ -21,6 +21,7 @@ export default function Home() {
   const [mode, setMode] = useState<"events" | "places">("events");
   const [activeSection, setActiveSection] = useState<"interests" | "events" | "search" | "history" | "new" | "favorites">("interests");
   const [interestRows, setInterestRows] = useState([""]);
+  const [placeQuery, setPlaceQuery] = useState("");
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -103,10 +104,9 @@ export default function Home() {
     setInterestText(next.filter(Boolean).join(". "));
   }
 
-  async function searchInterest(index: number, kind: "events" | "places") {
-    const interest = interestRows[index]?.trim();
+  async function runSearch(interest: string, kind: "events" | "places", key: string) {
     if (!interest) { setNotice("Сначала напиши интерес"); return; }
-    setSearchingInterest(`${index}-${kind}`);
+    setSearchingInterest(key);
     setNotice("");
     try {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest], kind }) });
@@ -130,6 +130,14 @@ export default function Home() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Поиск не выполнен");
     } finally { setSearchingInterest(null); }
+  }
+
+  function searchInterest(index: number) {
+    return runSearch(interestRows[index]?.trim() || "", "events", `${index}-events`);
+  }
+
+  function searchPlace() {
+    return runSearch(placeQuery.trim(), "places", "places");
   }
 
   const allItems = [...events, ...places];
@@ -165,11 +173,13 @@ export default function Home() {
         <nav className="nav"><div className="logo">Пойдём?</div><div className="mini-label">Москва</div></nav>
         <div className="top-tabs mode-tabs"><button className={mode === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => switchMode("events")}>События</button><button className={mode === "places" ? "top-tab active-top-tab" : "top-tab"} onClick={() => switchMode("places")}>Места</button></div>
         <div className="top-tabs sub-tabs">{mode === "events" ? <><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button></> : <><button className={activeSection === "search" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("search")}>Поиск</button><button className={activeSection === "history" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("history")}>История</button></>}<button className={activeSection === "new" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("new")}>Новое <span>{(mode === "events" ? newEvents : newPlaces).length}</span></button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{(mode === "events" ? favoriteEvents : favoritePlaces).length}</span></button></div>
-        {((mode === "events" && activeSection === "interests") || (mode === "places" && activeSection === "search")) && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder={mode === "events" ? "Например: средневековые фестивали" : "Например: экотропа"} aria-label={`Интерес ${index + 1}`} /><div className="search-actions">{mode === "events" && <button className="search-interest" onClick={() => searchInterest(index, "events")} disabled={searchingInterest !== null}>{searchingInterest === `${index}-events` ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "Искать"}</button>}{mode === "places" && <button className="search-interest place-search" onClick={() => searchInterest(index, "places")} disabled={searchingInterest !== null}>{searchingInterest === `${index}-places` ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "Искать"}</button>}</div>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        {mode === "events" && activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} /><div className="search-actions"><button className="search-interest" onClick={() => searchInterest(index)} disabled={searchingInterest !== null}>Искать</button></div>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        {mode === "places" && activeSection === "search" && <section className="tab-page"><div className="place-search-form"><input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Например: экотропа, необычные музеи" aria-label="Поиск мест" /><button className="primary" onClick={searchPlace} disabled={searchingInterest !== null}>Искать места</button></div></section>}
         {mode === "events" && activeSection === "events" && <section className="tab-page">{renderEvents(events)}</section>}
         {mode === "places" && activeSection === "history" && <section className="tab-page"><div className="history-head"><span>Все найденные места</span><button onClick={() => { setHistory([]); setNotice("История очищена"); }}>Очистить</button></div>{renderEvents(history.filter((item) => !item.category || item.category === "Место"))}</section>}
         {activeSection === "new" && <section className="tab-page">{renderEvents(mode === "events" ? newEvents : newPlaces)}</section>}
         {activeSection === "favorites" && <section className="tab-page"><p className="favorites-hint">Выберите событие и включите напоминание — бот напишет за неделю до начала.</p>{renderEvents(mode === "events" ? favoriteEvents : favoritePlaces)}</section>}
+        {searchingInterest && <div className="search-overlay" role="status" aria-live="polite"><div className="search-orbit"><span>🌍</span><i>🤴</i></div><p>Ищем подходящее…</p></div>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
     </main>
