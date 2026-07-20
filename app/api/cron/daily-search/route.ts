@@ -29,12 +29,13 @@ function parseEvents(result: string, interest: string): FoundEvent[] {
       const url = typeof value.url === "string" ? value.url.trim() : "";
       if (!title || !/^https?:\/\//i.test(url)) return [];
       const startsAt = typeof value.starts_at === "string" && value.starts_at.trim() ? value.starts_at.trim() : null;
+      const description = typeof value.description === "string" ? value.description.trim() : null;
       return [{
         source_url: url,
         title,
         category: typeof value.category === "string" ? value.category.trim() : null,
-        description: typeof value.description === "string" ? value.description.trim() : null,
-        explanation: typeof value.explanation === "string" ? value.explanation.trim() : `Подходит по интересу «${interest}».`,
+        description,
+        explanation: description || `Подходит по интересу «${interest}».`,
         venue: typeof value.venue === "string" ? value.venue.trim() : null,
         starts_at: startsAt,
         city: "Москва",

@@ -1,5 +1,7 @@
 type SearchBody = { interests?: string[]; interestText?: string; date?: string };
 
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 async function searchOneInterest(apiKey: string, interest: string, date: string) {
   const prompt = [
     "Найди в интернете актуальные будущие события в Москве.",
@@ -7,13 +9,13 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
     `Период: ${date}.`,
     "Ищи все доступные события, а не только ближайшую неделю.",
     "Используй реальные страницы с датой, местом и прямой ссылкой. Не выдумывай события.",
-    "Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент: {title, category, starts_at, venue, url, description, explanation}. starts_at — ISO 8601 или null. url — прямая ссылка на страницу события. Если событий нет, верни [].",
+    "Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент должен содержать ровно эти поля: {title, url, starts_at, venue, description}. title — название события; url — прямая рабочая ссылка на страницу события; starts_at — дата и время начала в ISO 8601, например 2026-08-15T19:00:00+03:00; venue — место проведения; description — короткое описание до 240 символов. Не добавляй события без URL или подтверждённой даты. Если событий нет, верни [].",
   ].join(" ");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini", max_tokens: 1200, temperature: 0, messages: [{ role: "user", content: prompt }], search_settings: { country: "russia" } }),
+    body: JSON.stringify({ model: process.env.GROQ_SEARCH_MODEL || "groq/compound-mini", max_tokens: 700, temperature: 0, messages: [{ role: "user", content: prompt }], search_settings: { country: "russia" } }),
   });
 
   if (response.status === 429) throw new Error("RATE_LIMIT");
@@ -30,11 +32,19 @@ export async function POST(request: Request) {
   const interests = (body?.interests?.length ? body.interests : body?.interestText ? [body.interestText] : []).map((interest) => interest.trim()).filter(Boolean);
   if (!interests.length) return Response.json({ error: "Добавьте хотя бы один интерес" }, { status: 400 });
 
-  try {
-    const results = await Promise.all(interests.map((interest) => searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду")));
-    return Response.json({ results, message: "Каждый интерес обработан отдельным поисковым запросом" });
-  } catch (error) {
-    if (error instanceof Error && error.message === "RATE_LIMIT") return Response.json({ error: "Поиск временно перегружен. Попробуйте ещё раз через минуту." }, { status: 429 });
-    return Response.json({ error: "Не удалось выполнить поиск событий" }, { status: 502 });
+  const results = [];
+  const errors = [];
+  for (const [index, interest] of interests.entries()) {
+    try {
+      results.push(await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду"));
+    } catch (error) {
+      errors.push({ interest, error: error instanceof Error && error.message === "RATE_LIMIT" ? "RATE_LIMIT" : "SEARCH_FAILED" });
+    }
+    if (index < interests.length - 1) await wait(1500);
   }
+
+  if (!results.length) {
+    return Response.json({ error: errors.some((item) => item.error === "RATE_LIMIT") ? "Поиск временно перегружен. Попробуйте ещё раз через минуту." : "Не удалось выполнить поиск событий", results: [], errors }, { status: errors.some((item) => item.error === "RATE_LIMIT") ? 429 : 502 });
+  }
+  return Response.json({ results, errors, message: "Каждый интерес обработан отдельным последовательным поисковым запросом" });
 }
