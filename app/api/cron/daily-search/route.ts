@@ -1,6 +1,7 @@
 import { supabaseRequest } from "@/lib/supabase-admin";
 
 type Profile = { id: string; telegram_user_id: string; interest_text: string };
+const PROFILE_DELAY_MS = 15000;
 
 type FoundEvent = {
   source_url: string;
@@ -64,19 +65,22 @@ export async function GET(request: Request) {
   }
 
   const results = [];
-  for (const profile of profiles.data || []) {
+  const profileQueue = profiles.data || [];
+  for (const [profileIndex, profile] of profileQueue.entries()) {
+    console.log(JSON.stringify({ event: "daily_search_profile_queued", jobId, profileId: profile.id, queuePosition: profileIndex + 1, queueSize: profileQueue.length }));
     const interests = profile.interest_text.split(/\.\s+/).map((item) => item.trim()).filter(Boolean);
     const runStartedAt = new Date().toISOString();
     try {
       const searchResponse = await fetch(new URL("/api/search", request.url), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ interests, date: "все актуальные будущие события без ограничения по периоду" }),
+        body: JSON.stringify({ interests, kind: "events", date: "все актуальные будущие события без ограничения по периоду" }),
       });
       const searchResult = await searchResponse.json();
       const foundEvents: FoundEvent[] = searchResponse.ok ? (searchResult.results || []).flatMap((item: { interest?: string; result?: string; kind?: "events" | "places" }) => parseEvents(item.result || "", item.interest || "", item.kind || "events")) : [];
       const uniqueEvents = [...new Map(foundEvents.map((event) => [event.source_url, event])).values()];
-      const stored = uniqueEvents.length ? await supabaseRequest("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(uniqueEvents) }) : { error: null };
+      const stored = uniqueEvents.length ? await supabaseRequest<Array<{ id: string }>>("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(uniqueEvents) }) : { data: [], error: null };
+      if (!stored.error && stored.data?.length) await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profile.id, event_id: event.id }))) });
       const status = searchResponse.ok && !stored.error ? "success" : "failed";
       await supabaseRequest("search_runs", { method: "POST", body: JSON.stringify({ profile_id: profile.id, status, interests_count: interests.length, result_count: uniqueEvents.length, error_message: searchResult.error || stored.error || null, started_at: runStartedAt, finished_at: new Date().toISOString(), result: searchResult }) });
       console.log(JSON.stringify({ event: "daily_search_profile_finished", jobId, profileId: profile.id, interestsCount: interests.length, eventsFound: uniqueEvents.length, status }));
@@ -87,6 +91,7 @@ export async function GET(request: Request) {
       console.error(JSON.stringify({ event: "daily_search_profile_failed", jobId, profileId: profile.id, error: message }));
       results.push({ profileId: profile.id, status: "failed", error: message });
     }
+    if (profileIndex < profileQueue.length - 1) await new Promise((resolve) => setTimeout(resolve, PROFILE_DELAY_MS));
   }
 
   console.log(JSON.stringify({ event: "daily_search_finished", jobId, profilesCount: profiles.data?.length || 0, resultsCount: results.length }));

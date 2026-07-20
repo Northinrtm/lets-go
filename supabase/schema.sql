@@ -30,6 +30,13 @@ create table if not exists public.favorites (
   primary key (profile_id, event_id)
 );
 
+create table if not exists public.profile_events (
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  event_id uuid not null references public.events(id) on delete cascade,
+  first_found_at timestamptz not null default now(),
+  primary key (profile_id, event_id)
+);
+
 create table if not exists public.search_runs (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid references public.profiles(id) on delete set null,
@@ -50,4 +57,5 @@ create index if not exists events_city_idx on public.events(city);
 alter table public.profiles enable row level security;
 alter table public.events enable row level security;
 alter table public.favorites enable row level security;
+alter table public.profile_events enable row level security;
 alter table public.search_runs enable row level security;

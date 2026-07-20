@@ -15,6 +15,8 @@ button { font: inherit; cursor: pointer; }
 .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.04em; }
 .mini-label { color: var(--muted); font-size: 13px; }
 .top-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: -14px -4px 28px; padding: 5px; border: 1px solid #e6e1d5; border-radius: 15px; background: rgba(247,245,239,.94); backdrop-filter: blur(12px); }
+.mode-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 8px; }
+.sub-tabs { grid-template-columns: repeat(4, 1fr); margin-top: 0; }
 .top-tab { min-height: 42px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-weight: 700; }
 .active-top-tab { background: var(--foreground); color: white; }
 .tab-page { min-height: 60vh; }
