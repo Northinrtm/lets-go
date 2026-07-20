@@ -17,6 +17,23 @@ function collectSearchHits(value: unknown, output: SearchHit[] = []): SearchHit[
   return output;
 }
 
+function normalizeModelResults(content: string, kind: "events" | "places") {
+  const candidate = content.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || content.match(/[\[{][\s\S]*[\]}]/)?.[0];
+  if (!candidate) return [];
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    const items = Array.isArray(parsed) ? parsed : [];
+    return items.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const value = item as Record<string, unknown>;
+      const title = typeof value.title === "string" ? value.title : typeof value.name === "string" ? value.name : "";
+      const url = typeof value.url === "string" ? value.url : typeof value.website === "string" ? value.website : "";
+      if (!title || !/^https?:\/\//i.test(url)) return [];
+      return [{ title, url, starts_at: kind === "places" ? null : (typeof value.starts_at === "string" ? value.starts_at : null), venue: typeof value.venue === "string" ? value.venue : typeof value.address === "string" ? value.address : "Москва", description: typeof value.description === "string" ? value.description.slice(0, 240) : "Подходит по твоему описанию." }];
+    }).slice(0, 20);
+  } catch { return []; }
+}
+
 function fallbackEvents(sources: unknown, interest: string, kind: "events" | "places"): Array<{ title: string; url: string; starts_at: string | null; venue: string; description: string }> {
   const seen = new Set<string>();
   return collectSearchHits(sources).flatMap((hit): Array<{ title: string; url: string; starts_at: string | null; venue: string; description: string }> => {
@@ -62,7 +79,8 @@ async function searchOneInterest(apiKey: string, interest: string, date: string,
   const data = await response.json();
   const sources = data.choices?.[0]?.message?.executed_tools || [];
   const content = data.choices?.[0]?.message?.content || "События не найдены";
-  return { interest, kind, result: content === "[]" ? JSON.stringify(fallbackEvents(sources, interest, kind)) : content, sources };
+  const normalized = normalizeModelResults(content, kind);
+  return { interest, kind, result: JSON.stringify(normalized.length ? normalized : fallbackEvents(sources, interest, kind)), sources };
 }
 
 export async function POST(request: Request) {

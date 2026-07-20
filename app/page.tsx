@@ -79,6 +79,12 @@ export default function Home() {
   }, [profileId]);
 
   useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     if (!profileId) return;
     fetch(`/api/favorites?profileId=${encodeURIComponent(profileId)}`)
       .then((response) => response.ok ? response.json() : null)
