@@ -1,4 +1,7 @@
-type SearchBody = { interests?: string[]; interestText?: string; date?: string; kind?: "events" | "places" };
+import { after } from "next/server";
+import { supabaseRequest } from "@/lib/supabase-admin";
+
+type SearchBody = { interests?: string[]; interestText?: string; date?: string; kind?: "events" | "places"; profileId?: string; background?: boolean };
 
 type SearchHit = { url?: string; title?: string; content?: string };
 type RateLimitError = Error & { retryAfterSeconds?: number };
@@ -91,29 +94,37 @@ async function searchOneInterest(apiKey: string, interest: string, date: string,
   return { interest, kind, result: JSON.stringify(normalized.length ? normalized : fallbackEvents(sources, interest, kind)), sources };
 }
 
-export async function POST(request: Request) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return Response.json({ error: "GROQ_API_KEY ещё не добавлен" }, { status: 503 });
+async function persistSearchResults(profileId: string, results: Array<{ result?: string }>) {
+  const found = results.flatMap((item) => {
+    try { return JSON.parse(item.result || "[]") as Array<Record<string, unknown>>; } catch { return []; }
+  }).flatMap((item) => {
+    const title = typeof item.title === "string" ? item.title : "";
+    const url = typeof item.url === "string" ? item.url : "";
+    if (!title || !/^https?:\/\//i.test(url)) return [];
+    const isPlace = item.starts_at === null;
+    return [{ source_url: url, title, category: isPlace ? "Место" : null, description: typeof item.description === "string" ? item.description : null, explanation: typeof item.description === "string" ? item.description : "Подходит по интересу.", venue: typeof item.venue === "string" ? item.venue : "Москва", starts_at: typeof item.starts_at === "string" ? item.starts_at : null, city: "Москва", raw_data: item }];
+  });
+  if (!found.length) return;
+  await supabaseRequest(`profile_events?profile_id=eq.${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify({ is_new: false }) });
+  const stored = await supabaseRequest<Array<{ id: string }>>("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(found) });
+  if (stored.error || !stored.data?.length) return;
+  await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profileId, event_id: event.id, first_found_at: new Date().toISOString(), is_new: true }))) });
+}
 
-  const body = await request.json().catch(() => null) as SearchBody | null;
-  const kind = body?.kind || "events";
-  const interests = (body?.interests?.length ? body.interests : body?.interestText ? [body.interestText] : []).map((interest) => interest.trim()).filter(Boolean);
-  if (!interests.length) return Response.json({ error: "Добавьте хотя бы один интерес" }, { status: 400 });
-
+async function executeSearch(apiKey: string, interests: string[], kind: "events" | "places", date: string) {
   const results = [];
   const errors = [];
   let retryAfterSeconds = 0;
   for (const [index, interest] of interests.entries()) {
     try {
       let result;
-      try {
-        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
-      } catch (error) {
+      try { result = await searchOneInterest(apiKey, interest, date, kind); }
+      catch (error) {
         if (!(error instanceof Error) || error.message !== "RATE_LIMIT") throw error;
         const retryAfter = (error as RateLimitError).retryAfterSeconds || Math.ceil(RATE_LIMIT_RETRY_DELAY_MS / 1000);
         retryAfterSeconds = Math.max(retryAfterSeconds, retryAfter);
         await wait(retryAfter * 1000);
-        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
+        result = await searchOneInterest(apiKey, interest, date, kind);
       }
       results.push(result);
     } catch (error) {
@@ -123,6 +134,28 @@ export async function POST(request: Request) {
     }
     if (index < interests.length - 1) await wait(INTEREST_DELAY_MS);
   }
+  return { results, errors, retryAfterSeconds };
+}
+
+export async function POST(request: Request) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return Response.json({ error: "GROQ_API_KEY ещё не добавлен" }, { status: 503 });
+
+  const body = await request.json().catch(() => null) as SearchBody | null;
+  const kind = body?.kind || "events";
+  const interests = (body?.interests?.length ? body.interests : body?.interestText ? [body.interestText] : []).map((interest) => interest.trim()).filter(Boolean);
+  if (!interests.length) return Response.json({ error: "Добавьте хотя бы один интерес" }, { status: 400 });
+  const date = body?.date || "все актуальные будущие события без ограничения по периоду";
+  if (body?.background && body.profileId) {
+    const jobId = crypto.randomUUID();
+    after(async () => {
+      const outcome = await executeSearch(apiKey, interests, kind, date);
+      if (outcome.results.length) await persistSearchResults(body.profileId!, outcome.results);
+      console.log(JSON.stringify({ event: "manual_search_finished", jobId, profileId: body.profileId, kind, resultsCount: outcome.results.length, errors: outcome.errors.length }));
+    });
+    return Response.json({ jobId, status: "started", message: "Поиск запущен в фоне" }, { status: 202 });
+  }
+  const { results, errors, retryAfterSeconds } = await executeSearch(apiKey, interests, kind, date);
 
   if (!results.length) {
     return Response.json({ error: errors.some((item) => item.error === "RATE_LIMIT") ? "Поиск временно перегружен." : "Не удалось выполнить поиск событий", retryAfterSeconds: retryAfterSeconds || undefined, results: [], errors }, { status: errors.some((item) => item.error === "RATE_LIMIT") ? 429 : 502 });
