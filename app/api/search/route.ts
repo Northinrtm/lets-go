@@ -7,7 +7,7 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
     `Период: ${date}.`,
     "Ищи все доступные события, а не только ближайшую неделю.",
     "Используй реальные страницы с датой, местом и прямой ссылкой. Не выдумывай события.",
-    "Верни краткий список: название, категория, дата, место, URL и коротко почему событие соответствует именно этому интересу.",
+    "Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент: {title, category, starts_at, venue, url, description, explanation}. starts_at — ISO 8601 или null. url — прямая ссылка на страницу события. Если событий нет, верни [].",
   ].join(" ");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
