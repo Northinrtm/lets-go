@@ -1,4 +1,4 @@
-type SearchBody = { interests?: string[]; interestText?: string; date?: string };
+type SearchBody = { interests?: string[]; interestText?: string; date?: string; kind?: "events" | "places" };
 
 type SearchHit = { url?: string; title?: string; content?: string };
 
@@ -17,13 +17,18 @@ function collectSearchHits(value: unknown, output: SearchHit[] = []): SearchHit[
   return output;
 }
 
-function fallbackEvents(sources: unknown, interest: string) {
+function fallbackEvents(sources: unknown, interest: string, kind: "events" | "places"): Array<{ title: string; url: string; starts_at: string | null; venue: string; description: string }> {
   const seen = new Set<string>();
-  return collectSearchHits(sources).flatMap((hit) => {
+  return collectSearchHits(sources).flatMap((hit): Array<{ title: string; url: string; starts_at: string | null; venue: string; description: string }> => {
     const url = hit.url?.trim() || "";
     if (!url || seen.has(url) || !/^https?:\/\//i.test(url)) return [];
     const text = `${hit.title || ""} ${hit.content || ""}`;
     const dateMatch = text.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b|\b(\d{1,2})[./](\d{1,2})[./](20\d{2})\b/);
+    if (kind === "events" && !dateMatch) return [];
+    if (kind === "places") {
+      seen.add(url);
+      return [{ title: hit.title!.trim(), url, starts_at: null, venue: "Москва", description: `Интересное место по запросу «${interest}».` }];
+    }
     if (!dateMatch) return [];
     const year = dateMatch[1] || dateMatch[6];
     const month = dateMatch[2] || dateMatch[5];
@@ -35,14 +40,15 @@ function fallbackEvents(sources: unknown, interest: string) {
   }).slice(0, 20);
 }
 
-async function searchOneInterest(apiKey: string, interest: string, date: string) {
+async function searchOneInterest(apiKey: string, interest: string, date: string, kind: "events" | "places") {
+  const subject = kind === "places" ? "интересные места, маршруты, экотропы, парки, музеи и необычные локации" : "актуальные будущие события";
   const prompt = [
-    "Найди в интернете актуальные будущие события в Москве.",
+    `Найди в интернете ${subject} в Москве.`,
     `Отдельный интерес пользователя: «${interest}». Не смешивай его с другими интересами.`,
-    `Период: ${date}.`,
-    "Ищи все доступные события, а не только ближайшую неделю.",
-    "Используй реальные страницы с датой, местом и прямой ссылкой. Не выдумывай события.",
-    "Извлеки все подходящие события со всех найденных страниц, максимум 20, а не одно лучшее. Не возвращай [] если хотя бы на одной странице есть будущие события с датой и URL. Верни только корректный JSON-массив без markdown и пояснений. Каждый элемент должен содержать ровно эти поля: {title, url, starts_at, venue, description}. title — название события; url — прямая рабочая ссылка на страницу события; starts_at — дата и время начала в ISO 8601, например 2026-08-15T19:00:00+03:00; venue — место проведения; description — короткое описание до 240 символов. Для диапазона дат укажи первый день. Не добавляй события без URL или подтверждённой даты. Если событий нет, верни [].",
+    kind === "events" ? `Период: ${date}. Ищи все доступные события, а не только ближайшую неделю.` : "Ищи места, которые можно посетить сейчас или в будущем, включая запросы вроде «экотропа».",
+    "Используй реальные страницы и прямые ссылки. Не выдумывай результаты.",
+    kind === "events" ? "Извлеки все события со всех найденных страниц, максимум 20. Каждый элемент JSON: {title, url, starts_at, venue, description}. starts_at — будущая дата и время начала в ISO 8601. Для диапазона укажи первый день." : "Извлеки все подходящие места со всех найденных страниц, максимум 20. Каждый элемент JSON: {title, url, starts_at, venue, description}. Для места starts_at всегда null.",
+    "description — короткое описание до 240 символов. Верни только корректный JSON-массив без markdown. Если ничего не найдено, верни [].",
   ].join(" ");
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -56,7 +62,7 @@ async function searchOneInterest(apiKey: string, interest: string, date: string)
   const data = await response.json();
   const sources = data.choices?.[0]?.message?.executed_tools || [];
   const content = data.choices?.[0]?.message?.content || "События не найдены";
-  return { interest, result: content === "[]" ? JSON.stringify(fallbackEvents(sources, interest)) : content, sources };
+  return { interest, kind, result: content === "[]" ? JSON.stringify(fallbackEvents(sources, interest, kind)) : content, sources };
 }
 
 export async function POST(request: Request) {
@@ -64,6 +70,7 @@ export async function POST(request: Request) {
   if (!apiKey) return Response.json({ error: "GROQ_API_KEY ещё не добавлен" }, { status: 503 });
 
   const body = await request.json().catch(() => null) as SearchBody | null;
+  const kind = body?.kind || "events";
   const interests = (body?.interests?.length ? body.interests : body?.interestText ? [body.interestText] : []).map((interest) => interest.trim()).filter(Boolean);
   if (!interests.length) return Response.json({ error: "Добавьте хотя бы один интерес" }, { status: 400 });
 
@@ -73,11 +80,11 @@ export async function POST(request: Request) {
     try {
       let result;
       try {
-        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду");
+        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
       } catch (error) {
         if (!(error instanceof Error) || error.message !== "RATE_LIMIT") throw error;
         await wait(RATE_LIMIT_RETRY_DELAY_MS);
-        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду");
+        result = await searchOneInterest(apiKey, interest, body?.date || "все актуальные будущие события без ограничения по периоду", kind);
       }
       results.push(result);
     } catch (error) {

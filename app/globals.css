@@ -14,18 +14,25 @@ button { font: inherit; cursor: pointer; }
 .nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 52px; }
 .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.04em; }
 .mini-label { color: var(--muted); font-size: 13px; }
-.top-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: -14px -4px 28px; padding: 5px; border: 1px solid #e6e1d5; border-radius: 15px; background: rgba(247,245,239,.94); backdrop-filter: blur(12px); }
+.top-tabs { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: -14px -4px 28px; padding: 5px; border: 1px solid #e6e1d5; border-radius: 15px; background: rgba(247,245,239,.94); backdrop-filter: blur(12px); }
 .top-tab { min-height: 42px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-weight: 700; }
 .active-top-tab { background: var(--foreground); color: white; }
 .tab-page { min-height: 60vh; }
 .tab-intro { margin: 12px 0 28px; }
 .interest-rows { display: grid; gap: 10px; }
 .interest-row { position: relative; }
-.interest-row input { width: 100%; min-height: 52px; border: 1px solid #d9d5c9; border-radius: 15px; background: var(--card); color: var(--foreground); padding: 0 100px 0 16px; font: inherit; font-size: 16px; outline-color: var(--accent); }
-.search-interest { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); min-height: 36px; border: 0; border-radius: 10px; padding: 0 12px; background: var(--foreground); color: var(--background); font-size: 14px; }
+.interest-row input { width: 100%; min-height: 52px; border: 1px solid #d9d5c9; border-radius: 15px; background: var(--card); color: var(--foreground); padding: 0 160px 0 16px; font: inherit; font-size: 16px; outline-color: var(--accent); }
+.search-actions { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); display: flex; gap: 4px; }
+.search-interest { min-height: 36px; border: 0; border-radius: 10px; padding: 0 10px; background: var(--foreground); color: var(--background); font-size: 13px; }
+.place-search { background: var(--accent); color: white; }
 .search-interest:disabled { opacity: .55; }
+.search-loader { position: relative; display: inline-block; width: 28px; height: 25px; font-size: 18px; line-height: 25px; }
+.search-loader > span { display: inline-block; animation: planet-spin 1.4s linear infinite; }
+.search-loader i { position: absolute; left: 9px; top: -5px; font-style: normal; font-size: 11px; animation: prince-walk 1.4s ease-in-out infinite; }
+@keyframes planet-spin { to { transform: rotate(360deg); } }
+@keyframes prince-walk { 0%, 100% { transform: translateX(-5px) rotate(-8deg); } 50% { transform: translateX(7px) rotate(8deg); } }
 .remove-row { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: #eee9df; color: var(--muted); font-size: 22px; }
-.interest-row .remove-row { right: 78px; }
+.interest-row .remove-row { right: 150px; }
 .add-row { min-height: 48px; border: 1px dashed #c9c2b4; border-radius: 15px; background: transparent; color: var(--foreground); font-weight: 700; }
 .page-title { margin-top: 8px; }
 .feed-label { margin: 28px 0 12px; color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
@@ -44,7 +51,11 @@ button { font: inherit; cursor: pointer; }
 .secondary { background: transparent; color: var(--foreground); border: 1px solid #d9d5c9; border-radius: 999px; padding: 12px 16px; min-height: 44px; }
 .save { border: 0; background: transparent; color: var(--muted); padding: 12px 0 0; text-align: left; }
 .notice { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #20201d; color: white; border-radius: 999px; padding: 12px 18px; }
+.history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: var(--muted); font-size: 14px; }
+.history-head button { border: 1px solid #d9d5c9; border-radius: 999px; background: transparent; padding: 8px 12px; color: var(--foreground); }
 @media (max-width: 760px) {
+  .top-tabs { overflow-x: auto; display: flex; margin-left: -10px; margin-right: -10px; }
+  .top-tab { min-width: 82px; padding: 0 8px; }
   .events { grid-template-columns: 1fr; gap: 12px; }
   .nav { margin-bottom: 42px; }
   .card { min-height: 0; padding: 18px; border-radius: 16px; }

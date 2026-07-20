@@ -7,14 +7,16 @@ export default function Home() {
   const [interestText, setInterestText] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [places, setPlaces] = useState<EventItem[]>([]);
+  const [history, setHistory] = useState<EventItem[]>([]);
   const [newEvents, setNewEvents] = useState<EventItem[]>([]);
   const [reminders, setReminders] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
-  const [searchingInterest, setSearchingInterest] = useState<number | null>(null);
+  const [searchingInterest, setSearchingInterest] = useState<string | null>(null);
   const [telegramUserId, setTelegramUserId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
-  const [activeSection, setActiveSection] = useState<"interests" | "events" | "new" | "favorites">("interests");
+  const [activeSection, setActiveSection] = useState<"interests" | "events" | "places" | "history" | "new" | "favorites">("interests");
   const [interestRows, setInterestRows] = useState([""]);
 
   useEffect(() => {
@@ -53,14 +55,18 @@ export default function Home() {
   }, [telegramUserId, interestText, interestRows, profileLoaded]);
 
   useEffect(() => {
-    Promise.all([fetch("/api/events"), fetch("/api/events?new=true")])
-      .then(async ([allResponse, newResponse]) => {
-        const allData = allResponse.ok ? await allResponse.json() : null;
+    Promise.all([fetch("/api/events?kind=events"), fetch("/api/events?kind=places"), fetch("/api/events?new=true"), fetch("/api/events?history=true")])
+      .then(async ([eventsResponse, placesResponse, newResponse, historyResponse]) => {
+        const eventsData = eventsResponse.ok ? await eventsResponse.json() : null;
+        const placesData = placesResponse.ok ? await placesResponse.json() : null;
         const newData = newResponse.ok ? await newResponse.json() : null;
-        setEvents(allData?.events || []);
+        const historyData = historyResponse.ok ? await historyResponse.json() : null;
+        setEvents(eventsData?.events || []);
+        setPlaces(placesData?.events || []);
         setNewEvents(newData?.events || []);
+        setHistory(historyData?.events || []);
       })
-      .catch(() => { setEvents([]); setNewEvents([]); });
+      .catch(() => { setEvents([]); setPlaces([]); setNewEvents([]); setHistory([]); });
   }, [telegramUserId]);
 
   useEffect(() => {
@@ -89,31 +95,34 @@ export default function Home() {
     setInterestText(next.filter(Boolean).join(". "));
   }
 
-  async function searchInterest(index: number) {
+  async function searchInterest(index: number, kind: "events" | "places") {
     const interest = interestRows[index]?.trim();
     if (!interest) { setNotice("Сначала напиши интерес"); return; }
-    setSearchingInterest(index);
+    setSearchingInterest(`${index}-${kind}`);
     setNotice("");
     try {
-      const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest] }) });
+      const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest], kind }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Не удалось выполнить поиск");
       const found = (data.results || []).flatMap((item: { result?: string }) => {
         try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
       });
       if (!found.length) { setNotice("По этому интересу ничего не найдено"); return; }
-      await fetch("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events: found }) });
-      const [allResponse, newResponse] = await Promise.all([fetch("/api/events"), fetch("/api/events?new=true")]);
-      setEvents((await allResponse.json()).events || []);
+      await fetch("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events: found.map((item: Record<string, unknown>) => ({ ...item, kind })) }) });
+      const [eventsResponse, placesResponse, newResponse, historyResponse] = await Promise.all([fetch("/api/events?kind=events"), fetch("/api/events?kind=places"), fetch("/api/events?new=true"), fetch("/api/events?history=true")]);
+      setEvents((await eventsResponse.json()).events || []);
+      setPlaces((await placesResponse.json()).events || []);
       setNewEvents((await newResponse.json()).events || []);
-      setActiveSection("new");
-      setNotice(`Найдено событий: ${found.length}`);
+      setHistory((await historyResponse.json()).events || []);
+      setActiveSection(kind === "places" ? "places" : "events");
+      setNotice(`Найдено: ${found.length}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Поиск не выполнен");
     } finally { setSearchingInterest(null); }
   }
 
-  const favoriteEvents = events.filter((event) => saved.includes(event.id));
+  const allItems = [...events, ...places];
+  const favoriteEvents = allItems.filter((event) => saved.includes(event.id));
 
   function saveEvent(id: string) {
     const isSaved = saved.includes(id);
@@ -137,9 +146,11 @@ export default function Home() {
     <main className="page">
       <div className="container">
         <nav className="nav"><div className="logo">Пойдём?</div><div className="mini-label">Москва</div></nav>
-        <div className="top-tabs"><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button><button className={activeSection === "new" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("new")}>Новые <span>{newEvents.length}</span></button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{favoriteEvents.length}</span></button></div>
-        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} /><button className="search-interest" onClick={() => searchInterest(index)} disabled={searchingInterest !== null}>{searchingInterest === index ? "…" : "Искать"}</button>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        <div className="top-tabs"><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button><button className={activeSection === "places" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("places")}>Места</button><button className={activeSection === "history" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("history")}>История</button><button className={activeSection === "new" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("new")}>Новое <span>{newEvents.length}</span></button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{favoriteEvents.length}</span></button></div>
+        {activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: экотропа" aria-label={`Интерес ${index + 1}`} /><div className="search-actions"><button className="search-interest" onClick={() => searchInterest(index, "events")} disabled={searchingInterest !== null}>{searchingInterest === `${index}-events` ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "События"}</button><button className="search-interest place-search" onClick={() => searchInterest(index, "places")} disabled={searchingInterest !== null}>{searchingInterest === `${index}-places` ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "Места"}</button></div>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
         {activeSection === "events" && <section className="tab-page">{renderEvents(events)}</section>}
+        {activeSection === "places" && <section className="tab-page">{renderEvents(places)}</section>}
+        {activeSection === "history" && <section className="tab-page"><div className="history-head"><span>Все найденные события и места</span><button onClick={() => { setHistory([]); setNotice("История очищена"); }}>Очистить</button></div>{renderEvents(history)}</section>}
         {activeSection === "new" && <section className="tab-page">{renderEvents(newEvents)}</section>}
         {activeSection === "favorites" && <section className="tab-page"><p className="favorites-hint">Выберите событие и включите напоминание — бот напишет за неделю до начала.</p>{renderEvents(favoriteEvents)}</section>}
         {notice && <div className="notice" role="status">{notice}</div>}

@@ -14,7 +14,7 @@ type FoundEvent = {
   raw_data: Record<string, unknown>;
 };
 
-function parseEvents(result: string, interest: string): FoundEvent[] {
+function parseEvents(result: string, interest: string, kind: "events" | "places" = "events"): FoundEvent[] {
   const fenced = result.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const candidate = fenced || result.match(/[\[{][\s\S]*[\]}]/)?.[0];
   if (!candidate) return [];
@@ -30,11 +30,11 @@ function parseEvents(result: string, interest: string): FoundEvent[] {
       if (!title || !/^https?:\/\//i.test(url)) return [];
       const startsAt = typeof value.starts_at === "string" && value.starts_at.trim() ? value.starts_at.trim() : null;
       const description = typeof value.description === "string" ? value.description.trim() : null;
-      if (!startsAt || Number.isNaN(new Date(startsAt).getTime()) || new Date(startsAt).getTime() < Date.now()) return [];
+      if (kind === "events" && (!startsAt || Number.isNaN(new Date(startsAt).getTime()) || new Date(startsAt).getTime() < Date.now())) return [];
       return [{
         source_url: url,
         title,
-        category: typeof value.category === "string" ? value.category.trim() : null,
+        category: kind === "places" ? "Место" : (typeof value.category === "string" ? value.category.trim() : null),
         description,
         explanation: description || `Подходит по интересу «${interest}».`,
         venue: typeof value.venue === "string" ? value.venue.trim() : null,
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
         body: JSON.stringify({ interests, date: "все актуальные будущие события без ограничения по периоду" }),
       });
       const searchResult = await searchResponse.json();
-      const foundEvents: FoundEvent[] = searchResponse.ok ? (searchResult.results || []).flatMap((item: { interest?: string; result?: string }) => parseEvents(item.result || "", item.interest || "")) : [];
+      const foundEvents: FoundEvent[] = searchResponse.ok ? (searchResult.results || []).flatMap((item: { interest?: string; result?: string; kind?: "events" | "places" }) => parseEvents(item.result || "", item.interest || "", item.kind || "events")) : [];
       const uniqueEvents = [...new Map(foundEvents.map((event) => [event.source_url, event])).values()];
       const stored = uniqueEvents.length ? await supabaseRequest("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(uniqueEvents) }) : { error: null };
       const status = searchResponse.ok && !stored.error ? "success" : "failed";
