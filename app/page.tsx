@@ -61,21 +61,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!profileId) return;
-    const profileQuery = `&profileId=${encodeURIComponent(profileId)}`;
-    Promise.all([fetch(`/api/events?kind=events${profileQuery}`), fetch(`/api/events?kind=places${profileQuery}`), fetch(`/api/events?kind=events&new=true${profileQuery}`), fetch(`/api/events?kind=places&new=true${profileQuery}`), fetch(`/api/events?history=true${profileQuery}`)])
-      .then(async ([eventsResponse, placesResponse, newEventsResponse, newPlacesResponse, historyResponse]) => {
-        const eventsData = eventsResponse.ok ? await eventsResponse.json() : null;
-        const placesData = placesResponse.ok ? await placesResponse.json() : null;
-        const newEventsData = newEventsResponse.ok ? await newEventsResponse.json() : null;
-        const newPlacesData = newPlacesResponse.ok ? await newPlacesResponse.json() : null;
-        const historyData = historyResponse.ok ? await historyResponse.json() : null;
-        setEvents(eventsData?.events || []);
-        setPlaces(placesData?.events || []);
-        setNewEvents(newEventsData?.events || []);
-        setNewPlaces(newPlacesData?.events || []);
-        setHistory(historyData?.events || []);
-      })
-      .catch(() => { setEvents([]); setPlaces([]); setNewEvents([]); setNewPlaces([]); setHistory([]); });
+    refreshLists().catch(() => { setEvents([]); setPlaces([]); setNewEvents([]); setNewPlaces([]); setHistory([]); });
   }, [profileId]);
 
   useEffect(() => {
@@ -110,6 +96,26 @@ export default function Home() {
     setInterestText(next.filter(Boolean).join(". "));
   }
 
+  async function refreshLists() {
+    if (!profileId) return;
+    const profileQuery = `&profileId=${encodeURIComponent(profileId)}`;
+    const [eventsResponse, placesResponse, newEventsResponse, newPlacesResponse, historyResponse] = await Promise.all([fetch(`/api/events?kind=events${profileQuery}`), fetch(`/api/events?kind=places${profileQuery}`), fetch(`/api/events?kind=events&new=true${profileQuery}`), fetch(`/api/events?kind=places&new=true${profileQuery}`), fetch(`/api/events?history=true${profileQuery}`)]);
+    setEvents((await eventsResponse.json()).events || []);
+    setPlaces((await placesResponse.json()).events || []);
+    setNewEvents((await newEventsResponse.json()).events || []);
+    setNewPlaces((await newPlacesResponse.json()).events || []);
+    setHistory((await historyResponse.json()).events || []);
+  }
+
+  function pollBackgroundResults(kind: "events" | "places", attempt = 0) {
+    window.setTimeout(async () => {
+      await refreshLists();
+      setMode(kind);
+      setActiveSection("new");
+      if (attempt < 5) pollBackgroundResults(kind, attempt + 1);
+    }, 10000);
+  }
+
   async function runSearch(interest: string, kind: "events" | "places", key: string) {
     if (!interest) { setNotice("Сначала напиши интерес"); return; }
     if (!profileId) { setNotice("Не удалось определить Telegram-профиль"); return; }
@@ -119,7 +125,7 @@ export default function Home() {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest], kind, profileId, background: true }) });
       const data = await response.json();
       if (!response.ok) throw new Error(`${data.error || "Не удалось выполнить поиск"}${data.retryAfterSeconds ? ` Повторить через ${data.retryAfterSeconds} сек.` : ""}`);
-      if (response.status === 202) { setActiveSection(kind === "places" ? "search" : "events"); setNotice("Поиск запущен в фоне. Можно закрыть приложение — результаты появятся после завершения."); return; }
+      if (response.status === 202) { setNotice("Поиск запущен в фоне. Можно закрыть приложение — результаты появятся после завершения."); pollBackgroundResults(kind); return; }
       const found = (data.results || []).flatMap((item: { result?: string }) => {
         try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
       });
