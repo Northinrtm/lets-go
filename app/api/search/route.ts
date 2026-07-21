@@ -148,6 +148,8 @@ export async function POST(request: Request) {
   if (!interests.length) return Response.json({ error: "Добавьте хотя бы один интерес" }, { status: 400 });
   const date = body?.date || "все актуальные будущие события без ограничения по периоду";
   if (body?.background && body.profileId) {
+    const clearResult = await supabaseRequest(`profile_events?profile_id=eq.${encodeURIComponent(body.profileId)}`, { method: "PATCH", body: JSON.stringify({ is_new: false }) });
+    if (clearResult.error) return Response.json({ error: "Не удалось подготовить фоновый поиск" }, { status: 503 });
     const jobId = crypto.randomUUID();
     after(async () => {
       const outcome = await executeSearch(apiKey, interests, kind, date);

@@ -100,19 +100,32 @@ export default function Home() {
     if (!profileId) return;
     const profileQuery = `&profileId=${encodeURIComponent(profileId)}`;
     const [eventsResponse, placesResponse, newEventsResponse, newPlacesResponse, historyResponse] = await Promise.all([fetch(`/api/events?kind=events${profileQuery}`), fetch(`/api/events?kind=places${profileQuery}`), fetch(`/api/events?kind=events&new=true${profileQuery}`), fetch(`/api/events?kind=places&new=true${profileQuery}`), fetch(`/api/events?history=true${profileQuery}`)]);
-    setEvents((await eventsResponse.json()).events || []);
-    setPlaces((await placesResponse.json()).events || []);
-    setNewEvents((await newEventsResponse.json()).events || []);
-    setNewPlaces((await newPlacesResponse.json()).events || []);
-    setHistory((await historyResponse.json()).events || []);
+    const refreshedEvents = (await eventsResponse.json()).events || [];
+    const refreshedPlaces = (await placesResponse.json()).events || [];
+    const refreshedNewEvents = (await newEventsResponse.json()).events || [];
+    const refreshedNewPlaces = (await newPlacesResponse.json()).events || [];
+    const refreshedHistory = (await historyResponse.json()).events || [];
+    setEvents(refreshedEvents);
+    setPlaces(refreshedPlaces);
+    setNewEvents(refreshedNewEvents);
+    setNewPlaces(refreshedNewPlaces);
+    setHistory(refreshedHistory);
+    return { newEvents: refreshedNewEvents as EventItem[], newPlaces: refreshedNewPlaces as EventItem[] };
   }
 
   function pollBackgroundResults(kind: "events" | "places", attempt = 0) {
     window.setTimeout(async () => {
-      await refreshLists();
-      setMode(kind);
-      setActiveSection("new");
-      if (attempt < 5) pollBackgroundResults(kind, attempt + 1);
+      const refreshed = await refreshLists();
+      const found = kind === "events" ? refreshed?.newEvents.length : refreshed?.newPlaces.length;
+      if (found) {
+        setSearchingInterest(null);
+        setNotice(`Поиск завершён. Найдено: ${found}`);
+      } else if (attempt < 17) {
+        pollBackgroundResults(kind, attempt + 1);
+      } else {
+        setSearchingInterest(null);
+        setNotice("Поиск завершён без новых результатов");
+      }
     }, 10000);
   }
 
@@ -121,11 +134,12 @@ export default function Home() {
     if (!profileId) { setNotice("Не удалось определить Telegram-профиль"); return; }
     setSearchingInterest(key);
     setNotice("");
+    let backgroundStarted = false;
     try {
       const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ interests: [interest], kind, profileId, background: true }) });
       const data = await response.json();
       if (!response.ok) throw new Error(`${data.error || "Не удалось выполнить поиск"}${data.retryAfterSeconds ? ` Повторить через ${data.retryAfterSeconds} сек.` : ""}`);
-      if (response.status === 202) { setNotice("Поиск запущен в фоне. Можно закрыть приложение — результаты появятся после завершения."); pollBackgroundResults(kind); return; }
+      if (response.status === 202) { backgroundStarted = true; setNotice("Поиск запущен в фоне. Можно закрыть приложение — результаты появятся после завершения."); pollBackgroundResults(kind); return; }
       const found = (data.results || []).flatMap((item: { result?: string }) => {
         try { const parsed = JSON.parse(item.result || "[]"); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
       });
@@ -144,7 +158,7 @@ export default function Home() {
       setNotice(`Найдено: ${found.length}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Поиск не выполнен");
-    } finally { setSearchingInterest(null); }
+    } finally { if (!backgroundStarted) setSearchingInterest(null); }
   }
 
   function searchInterest(index: number) {
@@ -188,13 +202,12 @@ export default function Home() {
         <nav className="nav"><div className="logo">Пойдём?</div><div className="mini-label">Москва</div></nav>
         <div className="top-tabs mode-tabs"><button className={mode === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => switchMode("events")}>События</button><button className={mode === "places" ? "top-tab active-top-tab" : "top-tab"} onClick={() => switchMode("places")}>Места</button></div>
         <div className="top-tabs sub-tabs">{mode === "events" ? <><button className={activeSection === "interests" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("interests")}>Интересы</button><button className={activeSection === "events" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("events")}>События</button></> : <><button className={activeSection === "search" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("search")}>Поиск</button><button className={activeSection === "history" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("history")}>История</button></>}<button className={activeSection === "new" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("new")}>Новое <span>{(mode === "events" ? newEvents : newPlaces).length}</span></button><button className={activeSection === "favorites" ? "top-tab active-top-tab" : "top-tab"} onClick={() => setActiveSection("favorites")}>♥ <span>{(mode === "events" ? favoriteEvents : favoritePlaces).length}</span></button></div>
-        {mode === "events" && activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} /><div className="search-actions"><button className="search-interest" onClick={() => searchInterest(index)} disabled={searchingInterest !== null}>Искать</button></div>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
-        {mode === "places" && activeSection === "search" && <section className="tab-page"><div className="place-search-form"><input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Например: экотропа, необычные музеи" aria-label="Поиск мест" /><button className="primary" onClick={searchPlace} disabled={searchingInterest !== null}>Искать места</button></div></section>}
+        {mode === "events" && activeSection === "interests" && <section className="tab-page"><div className="interest-rows">{interestRows.map((row, index) => <div className="interest-row" key={index}><input value={row} onChange={(event) => updateInterestRow(index, event.target.value)} placeholder="Например: средневековые фестивали" aria-label={`Интерес ${index + 1}`} /><div className="search-actions"><button className="search-interest" onClick={() => searchInterest(index)} disabled={searchingInterest !== null}>{searchingInterest === `${index}-events` ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "Искать"}</button></div>{interestRows.length > 1 && <button className="remove-row" onClick={() => removeInterestRow(index)} aria-label="Удалить интерес">×</button>}</div>)}<button className="add-row" onClick={addInterestRow}>＋ Добавить интерес</button></div></section>}
+        {mode === "places" && activeSection === "search" && <section className="tab-page"><div className="place-search-form"><input value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} placeholder="Например: экотропа, необычные музеи" aria-label="Поиск мест" /><button className="primary place-search-button" onClick={searchPlace} disabled={searchingInterest !== null}>{searchingInterest === "places" ? <span className="search-loader"><span>🌍</span><i>🤴</i></span> : "Искать места"}</button></div></section>}
         {mode === "events" && activeSection === "events" && <section className="tab-page">{renderEvents(events)}</section>}
         {mode === "places" && activeSection === "history" && <section className="tab-page"><div className="history-head"><span>Все найденные места</span><button onClick={() => { setHistory([]); setNotice("История очищена"); }}>Очистить</button></div>{renderEvents(history.filter((item) => !item.category || item.category === "Место"))}</section>}
         {activeSection === "new" && <section className="tab-page">{renderEvents(mode === "events" ? newEvents : newPlaces)}</section>}
         {activeSection === "favorites" && <section className="tab-page"><p className="favorites-hint">Выберите событие и включите напоминание — бот напишет за неделю до начала.</p>{renderEvents(mode === "events" ? favoriteEvents : favoritePlaces)}</section>}
-        {searchingInterest && <div className="search-overlay" role="status" aria-live="polite"><div className="search-orbit"><span>🌍</span><i>🤴</i></div><p>Ищем подходящее…</p></div>}
         {notice && <div className="notice" role="status">{notice}</div>}
       </div>
     </main>

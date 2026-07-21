@@ -57,10 +57,7 @@ button { font: inherit; cursor: pointer; }
 .history-head button { border: 1px solid #d9d5c9; border-radius: 999px; background: transparent; padding: 8px 12px; color: var(--foreground); }
 .place-search-form { display: flex; gap: 10px; align-items: center; }
 .place-search-form input { flex: 1; min-height: 52px; border: 1px solid #d9d5c9; border-radius: 15px; background: var(--card); color: var(--foreground); padding: 0 16px; font: inherit; font-size: 16px; outline-color: var(--accent); }
-.search-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; background: rgba(247,245,239,.93); backdrop-filter: blur(8px); }
-.search-overlay p { margin: 18px 0 0; color: var(--foreground); font-size: 16px; }
-.search-orbit { position: relative; width: 112px; height: 112px; display: grid; place-items: center; font-size: 64px; animation: planet-spin 2.2s linear infinite; }
-.search-orbit i { position: absolute; top: 2px; left: 42px; font-size: 24px; font-style: normal; animation: prince-walk 1.5s ease-in-out infinite; }
+.place-search-button { min-width: 124px; }
 @media (max-width: 760px) {
   .top-tabs { overflow-x: auto; display: flex; margin-left: -10px; margin-right: -10px; }
   .top-tab { min-width: 82px; padding: 0 8px; }
