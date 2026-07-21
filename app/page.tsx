@@ -56,7 +56,13 @@ export default function Home() {
 
   useEffect(() => {
     if (!telegramUserId || !profileLoaded) return;
-    fetch("/api/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: telegramInitData, interestText, interestRows }) }).catch(() => undefined);
+    fetch("/api/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ initData: telegramInitData, interestText, interestRows }) })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        const profile = Array.isArray(data?.profile) ? data.profile[0] : data?.profile;
+        if (profile?.id) setProfileId(profile.id);
+      })
+      .catch(() => undefined);
   }, [telegramInitData, interestText, interestRows, profileLoaded, telegramUserId]);
 
   useEffect(() => {

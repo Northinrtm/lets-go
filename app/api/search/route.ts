@@ -96,7 +96,7 @@ async function searchOneInterest(apiKey: string, interest: string, date: string,
 }
 
 async function persistSearchResults(profileId: string, results: Array<{ result?: string }>) {
-  const found = results.flatMap((item) => {
+  const parsed = results.flatMap((item) => {
     try { return JSON.parse(item.result || "[]") as Array<Record<string, unknown>>; } catch { return []; }
   }).flatMap((item) => {
     const title = typeof item.title === "string" ? item.title : "";
@@ -105,11 +105,12 @@ async function persistSearchResults(profileId: string, results: Array<{ result?:
     const isPlace = item.starts_at === null;
     return [{ source_url: url, title, category: isPlace ? "Место" : null, description: typeof item.description === "string" ? item.description : null, explanation: typeof item.description === "string" ? item.description : "Подходит по интересу.", venue: typeof item.venue === "string" ? item.venue : "Москва", starts_at: typeof item.starts_at === "string" ? item.starts_at : null, city: "Москва", raw_data: item }];
   });
+  const found = [...new Map(parsed.map((event) => [event.source_url, event])).values()];
   if (!found.length) return;
-  await supabaseRequest(`profile_events?profile_id=eq.${encodeURIComponent(profileId)}`, { method: "PATCH", body: JSON.stringify({ is_new: false }) });
   const stored = await supabaseRequest<Array<{ id: string }>>("events?on_conflict=source_url", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(found) });
-  if (stored.error || !stored.data?.length) return;
-  await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profileId, event_id: event.id, first_found_at: new Date().toISOString(), is_new: true }))) });
+  if (stored.error || !stored.data?.length) throw new Error(`STORE_EVENTS_FAILED: ${stored.error || "empty response"}`);
+  const links = await supabaseRequest("profile_events?on_conflict=profile_id,event_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(stored.data.map((event) => ({ profile_id: profileId, event_id: event.id, first_found_at: new Date().toISOString(), is_new: true }))) });
+  if (links.error) throw new Error(`STORE_LINKS_FAILED: ${links.error}`);
 }
 
 async function executeSearch(apiKey: string, interests: string[], kind: "events" | "places", date: string) {
@@ -152,9 +153,13 @@ export async function POST(request: Request) {
     if (clearResult.error) return Response.json({ error: "Не удалось подготовить фоновый поиск" }, { status: 503 });
     const jobId = crypto.randomUUID();
     after(async () => {
-      const outcome = await executeSearch(apiKey, interests, kind, date);
-      if (outcome.results.length) await persistSearchResults(body.profileId!, outcome.results);
-      console.log(JSON.stringify({ event: "manual_search_finished", jobId, profileId: body.profileId, kind, resultsCount: outcome.results.length, errors: outcome.errors.length }));
+      try {
+        const outcome = await executeSearch(apiKey, interests, kind, date);
+        if (outcome.results.length) await persistSearchResults(body.profileId!, outcome.results);
+        console.log(JSON.stringify({ event: "manual_search_finished", jobId, profileId: body.profileId, kind, resultsCount: outcome.results.length, errors: outcome.errors }));
+      } catch (error) {
+        console.error(JSON.stringify({ event: "manual_search_failed", jobId, profileId: body.profileId, kind, error: error instanceof Error ? error.message : String(error) }));
+      }
     });
     return Response.json({ jobId, status: "started", message: "Поиск запущен в фоне" }, { status: 202 });
   }
